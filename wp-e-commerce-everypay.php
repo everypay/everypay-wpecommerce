@@ -3,8 +3,8 @@
   Plugin Name: WP e-Commerce Everypay
   Plugin URI: https://everypay.gr
   Description: Integrates your Everypay payment getway into your WP e-Commerce webshop.
-  Version: 1.0.0
-  Author: Konstantinos Krevatas
+  Version: 1.0.8
+  Author: Everypay
   Text Domain: wpe-everypay
   Author URI: http://kostas.krevatas.net
  */
@@ -84,6 +84,19 @@ class WPEC_Everypay
         if (isset($_REQUEST['wpsc_action']) && ($_REQUEST['wpsc_action'] == 'everypay_get_button')) {
             add_action('init', array($this, 'get_button_data'));
         }
+
+        add_action('admin_enqueue_scripts', array($this, 'load_everypay_admin'));
+    }
+
+    public function load_everypay_admin()
+    {
+        if (isset($_GET['page']) && $_GET['page'] == 'wpsc-settings' && isset($_GET['tab']) && $_GET['tab'] == 'gateway' && isset($_GET['payment_gateway_id']) && $_GET['payment_gateway_id'] == 'Everypay') {
+            wp_register_script('everypay_script1', plugins_url('assets/js/admin/mustache.min.js', __FILE__), array('jquery'), 'ver', true);
+            wp_enqueue_script('everypay_script1');
+
+            wp_register_script('everypay_script2', plugins_url('assets/js/admin/everypay.js', __FILE__), array('jquery'), 'ver', true);
+            wp_enqueue_script('everypay_script2');
+        }
     }
 
     public function get_button_data()
@@ -95,6 +108,7 @@ class WPEC_Everypay
             'locale' => 'el',
             'callback' => 'handleEverypayToken',
             'sandbox' => WPEC_EP_Settings::get('everypay_sandbox'),
+            'max_installments' => wpec_everypay_get_installments(wpsc_cart_total(false),  WPEC_EP_Settings::get('everypay_maximum_installments')),
         );
 
         die(json_encode($jsonInit));
@@ -162,12 +176,7 @@ function wpec_everypay_gateway($seperator, $sessionid)
 {
     global $wpdb, $wpsc_cart;
     $errors = array();
-    try {
-        $token = isset($_POST['everypayToken']) ? $_POST['everypayToken'] : 0;
-        if (!$token) {
-            echo $this->show_button();
-            exit;
-        }
+    try {      
 
         $purchase_log_sql = $wpdb->prepare("SELECT * FROM `" . WPSC_TABLE_PURCHASE_LOGS . "` WHERE `sessionid`= %s LIMIT 1", $sessionid);
         $purchase_log = $wpdb->get_results($purchase_log_sql, ARRAY_A);
@@ -177,6 +186,13 @@ function wpec_everypay_gateway($seperator, $sessionid)
 
         $purchase_id = $cart[0]['purchaseid'];
         $merchant = new wpsc_merchant($purchase_id);
+        
+        $token = isset($_POST['everypayToken']) ? $_POST['everypayToken'] : 0;
+        if (!$token) {
+            $merchant->set_error_message('Opps. Something went wrong. Please retry');        
+            $merchant->return_to_checkout();
+            exit;
+        }        
 
         $amount = intval(wpsc_cart_total(false) * 100);
         $description = get_bloginfo('name') . ' / '
@@ -189,7 +205,7 @@ function wpec_everypay_gateway($seperator, $sessionid)
             'amount' => $amount,
             'payee_email' => $cart_data['email_address'],
             'token' => $token,
-            //'max_installments' => $this->everypay_get_installments($amount / 100, $this->everypayMaxInstallments),
+            'max_installments' => wpec_everypay_get_installments(wpsc_cart_total(false),  WPEC_EP_Settings::get('everypay_maximum_installments')),
         );
 
         if (WPEC_EP_Settings::get('everypay_sandbox')) {
@@ -202,7 +218,7 @@ function wpec_everypay_gateway($seperator, $sessionid)
         if (isset($response['body']['error'])) {
             $errors[] = $response['body']['error']['message'];
         } else {
-            wpsc_update_purchase_log_details($purchase_id,array('transactid' => $response['token']));
+            wpsc_update_purchase_log_details($purchase_id, array('transactid' => $response['token']));
         }
     } catch (\Exception $e) {
         $errors[] = $e->getMessage();
@@ -213,12 +229,40 @@ function wpec_everypay_gateway($seperator, $sessionid)
             $merchant->set_error_message($error_row);
         }
         $merchant->return_to_checkout();
-    } else {   
+    } else {
         $merchant->set_purchase_processed_by_purchid(3);
         $merchant->go_to_transaction_results($merchant->cart_data['session_id']);
     }
 
     exit();
+}
+
+function wpec_everypay_get_installments($total, $ins)
+{   
+    $ins = str_replace("\\", '', $ins);
+    if ($ins) {
+        $installments = json_decode($ins, true);
+        
+        $counter = 1;
+        $max = 0;
+        $max_installments = 0;
+        foreach ($installments as $i) {
+            if ($i['to'] > $max) {
+                $max = $i['to'];
+                $max_installments = $i['max'];
+            }
+
+            if (($counter == (count($installments)) && $total >= $max)) {
+                return $max_installments;
+            }
+
+            if ($total >= $i['from'] && $total <= $i['to']) {
+                return $i['max'];
+            }
+            $counter++;
+        }
+    }
+    return 0;
 }
 
 /**
@@ -244,10 +288,42 @@ function wpec_everypay_gateway_form()
     $output .= '</td></tr>';
 
     //SANDBOX enable
-    $output .= '<tr><td><label for="everypay_sandbox">Sandbox mode</label></td><td>';
-    $output .= '<input name="everypay_sandbox" id="everypay_sandbox" value="1"' . (WPEC_EP_Settings::get('everypay_sandbox') == '1' ? ' checked="checked"' : '') . ' type="checkbox"/> Yes<br/>';
+    $output .= '<tr><td><label for="everypay_sandbox">Sandbox mode</label></td>';
+    $output .= '<td><input name="everypay_sandbox" id="everypay_sandbox" value="1"' . (WPEC_EP_Settings::get('everypay_sandbox') == '1' ? ' checked="checked"' : '') . ' type="checkbox"/> Yes<br/>';
     $output .= WPEC_EP_Settings::field_hint('If a transaction fails or is cancelled and the user returns to your webshop, do you wish the contents of the users shopping basket to be kept? Otherwise it will be emptied.');
     $output .= '</td></tr>';
+
+    $output .= '<tr><td><label>Δόσεις</label>';
+    $output .= '<script type="text/javascript">var save_installments = "' . WPEC_EP_Settings::get('everypay_maximum_installments') . '" </script>';
+    $output .= '<input type="hidden" value="" name="everypay_maximum_installments" id="everypay_maximum_installments"></td>';
+    $output .= '<td><div id="installments"></div>
+                <div id="installment-table" style="display:none">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Από (Ποσό σε &euro;)</th>
+                                <th>Eως (Ποσό σε &euro;)</th>
+                                <th>Μέγιστος Αρ. Δόσεων</th>
+                                <th>
+                                    <a class="button-primary" href="#" id="add-installment" style="width:101px;">                        
+                                        <i class="icon icon-plus-sign"></i> <span class="ab-icon"></span>  Προσθήκη
+                                    </a>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        </tbody>
+                    </table>
+                </div>
+                <style type="text/css">
+                    #everypay-installments table{}
+                    .remove-installment{font-size: 2em; text-decoration: none !important;color:#ee5f5b}
+                    #installment-table table{width:600px;background: white;}                    
+                    #installment-table tr td{border:1px solid #111;}                    
+                    #installments table{width:601px;max-width: 601px;background: #fff; padding:16px;}
+                    #installments table input[type="number"] {width: 99px;}
+                </style>
+                </td>';
 
     return $output;
 }
@@ -262,9 +338,28 @@ function wpec_everypay_gateway_submit()
     WPEC_EP_Settings::update_on_post('everypay_public_key');
     WPEC_EP_Settings::update_on_post('everypay_secret_key');
     WPEC_EP_Settings::update_on_post('everypay_sandbox');
+    WPEC_EP_Settings::update_on_post('everypay_maximum_installments');
 
     return true;
 }
+
+class load_language 
+{
+    public function __construct()
+    {
+    add_action('init', array($this, 'load_my_transl'));
+    }
+
+     public function load_my_transl()
+    {
+        load_plugin_textdomain('wp-ecommerce-everypay', FALSE, dirname(plugin_basename(__FILE__)).'/languages/');
+    }
+}
+
+$lang = new load_language;
+echo __("mymessage1", 'wp-ecommerce-everypay');
+
+
 if (!function_exists('WPEC_EP')) {
 
     function WPEC_EP()

@@ -15,11 +15,19 @@ class WPEC_EP_Settings
      * @static
      * @param string $setting > the option key string
      */
-    public static function update_on_post( $setting )
+    public static function update_on_post( $setting, $json_decode = false )
     {        
         if( isset( $_POST[$setting] ) ) 
         {
-            update_option( $setting, $_POST[$setting] );
+            /*if($json_decode){
+                $obj = str_replace("\\", '', $_POST[$setting]);
+                var_dump($obj);
+                var_dump(json_decode($obj));
+                
+                exit;
+            }*/
+            
+            update_option( $setting, $_POST[$setting]);
         }
     }
     

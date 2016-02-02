@@ -17,7 +17,21 @@ jQuery(document).ready(function ($) {
             return;
         }
 
+        if ($('#agree').length && !$('#agree').is(':checked')) {
+            var $blink = $('#agree').parent();
+            $blink.fadeOut('fast', function () {
+                $blink.fadeIn('fast', function () {
+                    $blink.fadeOut('fast', function () {
+                        $blink.fadeIn('fast');
+                    });
+                });
+            });
+            e.preventDefault();
+            return;
+        }
+        
         e.preventDefault();
+
         //send ajax to get the init data back
         jQuery.ajax({
             type: "post",

@@ -40,7 +40,7 @@ jQuery(document).ready(function ($) {
             data: {wpsc_action: 'everypay_get_button'},
             beforeSend: function () {
                 $SUBMIT_BUTTON.attr('disabled', 'disabled').addClass('disabled').css('opacity', '0.8');
-                $SUBMIT_BUTTON.val('Παρακαλούμε περιμένετε ...');
+                $SUBMIT_BUTTON.val(TXT_WPEC_PLEASE_WAIT + ' ...');
             },
             complete: function () {
                 reEnable();
@@ -50,7 +50,7 @@ jQuery(document).ready(function ($) {
             },
             error: function (result) {
                 reEnable();
-                alert('Προέκυψε κάποιο σφάλμα. Παρακαλούμε επικοινωνήστε μαζί μας για την ολοκλήρωση της παραγγελίας σας.');
+                alert(TXT_WPEC_OOPS);
             }
         });
     })
@@ -87,7 +87,7 @@ jQuery(document).ready(function ($) {
 function handleEverypayToken(message) {
     $EVERYPAY_FORM.append('<input type="hidden" value="' + message.token + '" name="everypayToken">');
     $SUBMIT_BUTTON.attr('disabled', 'disabled').addClass('disabled').css('opacity', '0.8');
-    $SUBMIT_BUTTON.val('Παρακαλούμε περιμένετε ...');
+    $SUBMIT_BUTTON.val(TXT_WPEC_PLEASE_WAIT + ' ...');
     $EVERYPAY_FORM.submit();
 }
 
